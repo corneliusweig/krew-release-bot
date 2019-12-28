@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/go-github/github"
 	"github.com/rajatjindal/krew-release-bot/pkg/actions"
+	"github.com/rajatjindal/krew-release-bot/pkg/events"
 	"github.com/rajatjindal/krew-release-bot/pkg/helpers"
 	"github.com/rajatjindal/krew-release-bot/pkg/krew"
 	"github.com/sirupsen/logrus"
@@ -86,12 +87,23 @@ func Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if event.GetAction() != "published" {
-		logrus.Error("action is not published.")
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("action is not published."))
-		return
-	}
+	recorder := events.NewRecorder()
+	recorder.Record(events.Event{
+		Description: "release event received",
+		RawPayload:  string(body),
+	})
+
+	defer func() {
+		if err == nil {
+			return
+		}
+
+		recorder.Record(events.Event{
+			Description: "Error when processing event",
+			RawPayload:  string(body),
+			Error:       err.Error(),
+		})
+	}()
 
 	actionData, err := realAction.GetActionData(event)
 	if err != nil {
@@ -101,12 +113,31 @@ func Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	recorder.Record(events.Event{
+		Description: "action data retrieved successfully",
+	})
+
+	if event.GetAction() != "published" {
+		logrus.Error("action is not published.")
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("action is not published."))
+		return
+	}
+
+	recorder.Record(events.Event{
+		Description: "release action is published",
+	})
+
 	if actionData.ReleaseInfo.GetPrerelease() {
 		logrus.Infof("%s is a pre-release. not opening the PR", actionData.ReleaseInfo.GetTagName())
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("its a prerelease."))
 		return
 	}
+
+	recorder.Record(events.Event{
+		Description: "release is not a pre-release",
+	})
 
 	tempdir, err := ioutil.TempDir("", "krew-index-")
 	if err != nil {
@@ -115,6 +146,10 @@ func Handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	recorder.Record(events.Event{
+		Description: "created temp dir successfully",
+	})
+
 	logrus.Infof("will operate in tempdir %s", tempdir)
 	repo, err := helpers.CloneRepos(actionData, tempdir)
 	if err != nil {
@@ -122,6 +157,10 @@ func Handle(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("failed to clone the repo."))
 		return
 	}
+
+	recorder.Record(events.Event{
+		Description: "created temp dir successfully",
+	})
 
 	//https://raw.githubusercontent.com/rajatjindal/kubectl-modify-secret/master/.krew.yaml
 	templateFileURI := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/master/.krew.yaml", actionData.RepoOwner, actionData.Repo)
