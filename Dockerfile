@@ -18,4 +18,4 @@ USER app
 
 COPY --from=builder /go/src/github.com/rajatjindal/krew-release-bot/krew-release-bot /usr/local/bin/
 
-ENTRYPOINT "/usr/local/bin/krew-release-bot"
+ENTRYPOINT /usr/local/bin/krew-release-bot webhook
