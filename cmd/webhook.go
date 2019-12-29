@@ -20,7 +20,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var realAction actions.RealAction
+var webhookAction actions.WebhookAction
 
 // rootCmd represents the base command when called without any subcommands
 var webhookCommand = &cobra.Command{
@@ -39,7 +39,7 @@ func startWebhook() {
 	ghToken := os.Getenv("GH_TOKEN")
 	webhookToken := os.Getenv("WEBHOOK_TOKEN")
 
-	realAction = actions.RealAction{
+	webhookAction = actions.WebhookAction{
 		Token:           ghToken,
 		WebhookSecret:   webhookToken,
 		TokenEmail:      "krewpluginreleasebot@gmail.com",
@@ -47,7 +47,7 @@ func startWebhook() {
 		TokenUsername:   "Krew Release Bot",
 	}
 
-	logrus.Infof("user: %s, name: %q", realAction.TokenUserHandle, realAction.TokenUsername)
+	logrus.Infof("user: %s, name: %q", webhookAction.TokenUserHandle, webhookAction.TokenUsername)
 	s := &http.Server{
 		Addr:           fmt.Sprintf(":%d", 8080),
 		MaxHeaderBytes: 1 << 20,
@@ -59,7 +59,7 @@ func startWebhook() {
 
 //HandleWebhook handles the github webhook call
 func HandleWebhook(w http.ResponseWriter, r *http.Request) {
-	body, ok := isValidSignature(r, realAction.WebhookSecret)
+	body, ok := isValidSignature(r, webhookAction.WebhookSecret)
 
 	if !ok {
 		w.WriteHeader(http.StatusForbidden)
@@ -107,7 +107,7 @@ func HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	actionData, err := realAction.GetActionData(event)
+	actionData, err := webhookAction.GetActionData(event)
 	if err != nil {
 		logrus.Error("failed to get actionData. error: ", err.Error())
 		w.WriteHeader(http.StatusInternalServerError)
@@ -115,82 +115,79 @@ func HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	processMe(actionData, w)
+	pluginManifest, err := processTemplate(actionData)
+	if err != nil {
+		logrus.Error("failed to process template. error: ", err.Error())
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("failed to process template."))
+		return
+	}
+
+	pr, err := processMe(actionData, pluginManifest)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte("failed when running processMe"))
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(pr))
 }
 
-func processMe(actionData actions.ActionData, w http.ResponseWriter) {
+func processTemplate(actionData actions.ActionData) ([]byte, error) {
+	//https://raw.githubusercontent.com/rajatjindal/kubectl-modify-secret/master/.krew.yaml
+	templateFileURI := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/master/.krew.yaml", actionData.RepoOwner, actionData.Repo)
+
+	processedBytes, err := krew.ProcessPluginManifest(templateFileURI, actionData.ReleaseInfo)
+	if err != nil {
+		return nil, err
+	}
+
+	return processedBytes, nil
+}
+
+func processMe(actionData actions.ActionData, processedBytes []byte) (string, error) {
 	if actionData.ReleaseInfo.GetPrerelease() {
-		logrus.Infof("%s is a pre-release. not opening the PR", actionData.ReleaseInfo.GetTagName())
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("its a prerelease."))
-		return
+		return "", fmt.Errorf("%s is a pre-release. not opening the PR", actionData.ReleaseInfo.GetTagName())
 	}
 
 	tempdir, err := ioutil.TempDir("", "krew-index-")
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("failed to create tempdir."))
-		return
+		return "", err
 	}
 
 	logrus.Infof("will operate in tempdir %s", tempdir)
 	repo, err := helpers.CloneRepos(actionData, tempdir)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("failed to clone the repo."))
-		return
+		return "", err
 	}
 
-	//https://raw.githubusercontent.com/rajatjindal/kubectl-modify-secret/master/.krew.yaml
-	templateFileURI := fmt.Sprintf("https://raw.githubusercontent.com/%s/%s/master/.krew.yaml", actionData.RepoOwner, actionData.Repo)
 	tempfile, err := ioutil.TempFile("", "krew-")
 	if err != nil {
-		logrus.Info("failed to create temp file")
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("failed to create temp file."))
-		return
-	}
-	defer os.Remove(tempfile.Name())
-
-	err = krew.UpdatePluginManifest(templateFileURI, tempfile.Name(), actionData.ReleaseInfo)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
-		return
+		return "", err
 	}
 
 	actionData.Inputs.PluginName, err = krew.GetPluginName(tempfile.Name())
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
-		return
+		return "", err
 	}
 
 	logrus.Info("validating ownership")
-	actualFile := filepath.Join(tempdir, "plugins", krew.PluginFileName(actionData.Inputs.PluginName))
+	actualFile := filepath.Join("tempdir", "plugins", krew.PluginFileName(actionData.Inputs.PluginName))
 	err = krew.ValidateOwnership(actualFile, actionData.RepoOwner)
 	if err != nil {
-		logrus.Errorf("failed when validating ownership with error: %s", err.Error())
-		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte("could not verify ownership of plugin."))
-		return
+		return "", fmt.Errorf("failed when validating ownership with error: %s", err.Error())
 	}
 
 	logrus.Info("update plugin manifest with latest release info")
 	err = krew.ValidatePlugin(actionData.Inputs.PluginName, tempfile.Name())
 	if err != nil {
-		logrus.Errorf("failed when validating plugin spec with error: %s", err.Error())
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("validate spec failed"))
-		return
+		return "", fmt.Errorf("failed when validating plugin spec with error: %s", err.Error())
 	}
 
 	_, err = copy(tempfile.Name(), actualFile)
 	if err != nil {
-		logrus.Errorf("failed when copying plugin spec with error: %s", err.Error())
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("copy spec file failed"))
-		return
+		return "", fmt.Errorf("failed when copying plugin spec with error: %s", err.Error())
 	}
 
 	logrus.Infof("pushing changes to branch %s", actionData.ReleaseInfo.GetTagName())
@@ -200,21 +197,16 @@ func processMe(actionData actions.ActionData, w http.ResponseWriter) {
 	}
 	err = helpers.AddCommitAndPush(repo, commit, actionData)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
-		return
+		return "", err
 	}
 
 	logrus.Info("submitting the pr")
 	pr, err := helpers.SubmitPR(actionData)
 	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(err.Error()))
-		return
+		return "", err
 	}
 
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(pr))
+	return pr, nil
 }
 
 func isValidSignature(r *http.Request, key string) ([]byte, bool) {

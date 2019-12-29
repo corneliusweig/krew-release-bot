@@ -10,14 +10,24 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-//UpdatePluginManifest updates the manifest with latest release info
-func UpdatePluginManifest(templateFileURI, actualFile string, release *github.RepositoryRelease) error {
+//ProcessPluginManifest updates the manifest with latest release info
+func ProcessPluginManifest(templateFileURI string, release *github.RepositoryRelease) ([]byte, error) {
 	templateFile, err := downloadFileWithName(templateFileURI, ".krew.yaml")
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	processedPluginBytes, err := processPluginTemplate(templateFile, release)
+	if err != nil {
+		return nil, err
+	}
+
+	return processedPluginBytes, nil
+}
+
+//UpdatePluginManifest updates the manifest with latest release info
+func UpdatePluginManifest(templateFileURI, actualFile string, release *github.RepositoryRelease) error {
+	processedPluginBytes, err := ProcessPluginManifest(templateFileURI, release)
 	if err != nil {
 		return err
 	}
