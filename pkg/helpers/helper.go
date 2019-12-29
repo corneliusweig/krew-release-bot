@@ -161,7 +161,7 @@ func getTitle(actionData actions.ActionData) *string {
 }
 
 func getBranchName(actionData actions.ActionData) *string {
-	s := fmt.Sprintf("%s-%s-%s", actionData.Actor, actionData.Repo, actionData.ReleaseInfo.GetTagName())
+	s := fmt.Sprintf("%s-%s-%s", actionData.RepoOwner, actionData.Repo, actionData.ReleaseInfo.GetTagName())
 	fmt.Printf("creating branch %s", s)
 	return github.String(s)
 }
@@ -183,8 +183,8 @@ Thanks,
 	s := fmt.Sprintf(prBody,
 		fmt.Sprintf("`%s`", actionData.ReleaseInfo.GetTagName()),
 		fmt.Sprintf("`%s`", actionData.Inputs.PluginName),
-		actionData.Actor,
-		actionData.Actor,
+		actionData.RepoOwner,
+		actionData.RepoOwner,
 	)
 
 	return github.String(s)
