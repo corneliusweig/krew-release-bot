@@ -53,12 +53,12 @@ func startWebhook() {
 		MaxHeaderBytes: 1 << 20,
 	}
 
-	http.HandleFunc("/", Handle)
+	http.HandleFunc("/webhook", HandleWebhook)
 	logrus.Fatal(s.ListenAndServe())
 }
 
-//Handle handles the function call to function
-func Handle(w http.ResponseWriter, r *http.Request) {
+//HandleWebhook handles the github webhook call
+func HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	body, ok := isValidSignature(r, realAction.WebhookSecret)
 
 	if !ok {
