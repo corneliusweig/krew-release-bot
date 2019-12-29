@@ -115,6 +115,10 @@ func HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	processMe(actionData, w)
+}
+
+func processMe(actionData actions.ActionData, w http.ResponseWriter) {
 	if actionData.ReleaseInfo.GetPrerelease() {
 		logrus.Infof("%s is a pre-release. not opening the PR", actionData.ReleaseInfo.GetTagName())
 		w.WriteHeader(http.StatusInternalServerError)
