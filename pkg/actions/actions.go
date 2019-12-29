@@ -17,17 +17,17 @@ type Inputs struct {
 
 //Derived is derived data
 type Derived struct {
-	UpstreamCloneURL string
-	LocalCloneURL    string
+	UpstreamCloneURL string `json:"upstream-clone-url,omitempty"`
+	LocalCloneURL    string `json:"local-clone-url,omitempty"`
 }
 
 //ActionData is action data
 type ActionData struct {
-	Workspace   string                    `json:"workspace"`
-	Actor       string                    `json:"actor"`
-	Repo        string                    `json:"repo"`
-	RepoOwner   string                    `json:"repo-owner"`
-	Inputs      Inputs                    `json:"inputs"`
-	ReleaseInfo *github.RepositoryRelease `json:"release"`
-	Derived     Derived                   `json:"derived"`
+	Workspace   string                    `json:"workspace,omitempty"`
+	Actor       string                    `json:"actor,omitempty"`
+	Repo        string                    `json:"repo,omitempty"`
+	RepoOwner   string                    `json:"repo-owner,omitempty"`
+	Inputs      Inputs                    `json:"inputs,omitempty"`
+	ReleaseInfo *github.RepositoryRelease `json:"release,omitempty"`
+	Derived     Derived                   `json:"derived,omitempty"`
 }

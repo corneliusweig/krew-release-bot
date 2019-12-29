@@ -17,10 +17,13 @@ import (
 
 // actionCommand represents the base command when called without any subcommands
 var actionCommand = &cobra.Command{
-	Use:   "actionCommand",
+	Use:   "action",
 	Short: "generates the .krew file and open PR",
 	Run: func(cmd *cobra.Command, args []string) {
-		processAction()
+		err := processAction()
+		if err != nil {
+			logrus.Fatal(err)
+		}
 	},
 }
 
@@ -129,6 +132,5 @@ func (ij *injectAuth) RoundTrip(req *http.Request) (*http.Response, error) {
 	req.Header.Set("authorization", fmt.Sprintf("Bearer %s", ij.token))
 	x, _ := httputil.DumpRequestOut(req, true)
 	fmt.Println(string(x))
-	fmt.Println("here")
 	return http.DefaultTransport.RoundTrip(req)
 }
