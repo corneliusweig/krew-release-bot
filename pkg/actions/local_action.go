@@ -32,8 +32,8 @@ func (l LocalAction) GetActionData(event *github.ReleaseEvent) (ActionData, erro
 			UpstreamKrewIndexRepoName: "krew-index",
 		},
 		Derived: Derived{
-			UpstreamCloneURL: getRepoURL("rajatjin", "krew-index"),
-			LocalCloneURL:    getRepoURL("rajatjindal", "krew-index"),
+			UpstreamCloneURL: GetRepoURL("rajatjin", "krew-index"),
+			LocalCloneURL:    GetRepoURL("rajatjindal", "krew-index"),
 		},
 	}, nil
 }

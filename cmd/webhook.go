@@ -20,13 +20,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var webhookAction actions.WebhookAction
-
 // rootCmd represents the base command when called without any subcommands
 var webhookCommand = &cobra.Command{
-	Use:   "webhook",
+	Use:   "start",
 	Short: "starts the webhook listener",
 	Run: func(cmd *cobra.Command, args []string) {
+		if os.Getenv("GITHUB_ACTIONS") == "true" {
+			err := processAction()
+			if err != nil {
+				logrus.Fatal(err)
+			}
+			os.Exit(0)
+		}
+
 		startWebhook()
 	},
 }
@@ -36,29 +42,30 @@ func init() {
 }
 
 func startWebhook() {
-	ghToken := os.Getenv("GH_TOKEN")
-	webhookToken := os.Getenv("WEBHOOK_TOKEN")
-
-	webhookAction = actions.WebhookAction{
-		Token:           ghToken,
-		WebhookSecret:   webhookToken,
-		TokenEmail:      "krewpluginreleasebot@gmail.com",
-		TokenUserHandle: "krew-release-bot",
-		TokenUsername:   "Krew Release Bot",
-	}
-
-	logrus.Infof("user: %s, name: %q", webhookAction.TokenUserHandle, webhookAction.TokenUsername)
 	s := &http.Server{
 		Addr:           fmt.Sprintf(":%d", 8080),
 		MaxHeaderBytes: 1 << 20,
 	}
 
 	http.HandleFunc("/webhook", HandleWebhook)
+	http.HandleFunc("/gh-action", HandleActionWebhook)
 	logrus.Fatal(s.ListenAndServe())
 }
 
 //HandleWebhook handles the github webhook call
 func HandleWebhook(w http.ResponseWriter, r *http.Request) {
+	ghToken := os.Getenv("GH_TOKEN")
+	webhookToken := os.Getenv("WEBHOOK_TOKEN")
+
+	webhookAction := actions.WebhookAction{
+		Token:           ghToken,
+		WebhookSecret:   webhookToken,
+		TokenEmail:      "krewpluginreleasebot@gmail.com",
+		TokenUserHandle: "krew-release-bot",
+		TokenUsername:   "Krew Release Bot",
+	}
+	logrus.Infof("user: %s, name: %q", webhookAction.TokenUserHandle, webhookAction.TokenUsername)
+
 	body, ok := isValidSignature(r, webhookAction.WebhookSecret)
 
 	if !ok {
@@ -125,6 +132,7 @@ func HandleWebhook(w http.ResponseWriter, r *http.Request) {
 
 	pr, err := processMe(actionData, pluginManifest)
 	if err != nil {
+		logrus.Error(err)
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("failed when running processMe"))
 		return
@@ -167,15 +175,24 @@ func processMe(actionData actions.ActionData, processedBytes []byte) (string, er
 		return "", err
 	}
 
+	err = ioutil.WriteFile(tempfile.Name(), processedBytes, 0644)
+	if err != nil {
+		return "", err
+	}
+
 	actionData.Inputs.PluginName, err = krew.GetPluginName(tempfile.Name())
 	if err != nil {
 		return "", err
 	}
 
 	logrus.Info("validating ownership")
-	actualFile := filepath.Join("tempdir", "plugins", krew.PluginFileName(actionData.Inputs.PluginName))
+	actualFile := filepath.Join(tempdir, "plugins", krew.PluginFileName(actionData.Inputs.PluginName))
 	err = krew.ValidateOwnership(actualFile, actionData.RepoOwner)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("plugin %s not found in existing repo. The first release has to be done manually", actionData.Inputs.PluginName)
+		}
+
 		return "", fmt.Errorf("failed when validating ownership with error: %s", err.Error())
 	}
 

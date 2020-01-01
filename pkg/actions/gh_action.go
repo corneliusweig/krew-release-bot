@@ -24,7 +24,8 @@ func (r GithubAction) GetActionData(releaseInfo *github.RepositoryRelease) (Acti
 	}, nil
 }
 
-func getRepoURL(owner, repo string) string {
+//GetRepoURL returns clone url
+func GetRepoURL(owner, repo string) string {
 	return fmt.Sprintf("https://github.com/%s/%s.git", owner, repo)
 }
 

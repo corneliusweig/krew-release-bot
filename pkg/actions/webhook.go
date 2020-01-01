@@ -38,7 +38,7 @@ func (r WebhookAction) GetActionData(event *github.ReleaseEvent) (ActionData, er
 
 	upstreamKrewIndexRepoOwner := r.getInputForAction("upstream-krew-index-owner")
 	if upstreamKrewIndexRepoOwner == "" {
-		upstreamKrewIndexRepoOwner = "kubernetes-sigs"
+		upstreamKrewIndexRepoOwner = "rajatjin"
 	}
 
 	return ActionData{
@@ -55,8 +55,8 @@ func (r WebhookAction) GetActionData(event *github.ReleaseEvent) (ActionData, er
 			TokenUserHandle:           r.TokenUserHandle,
 		},
 		Derived: Derived{
-			UpstreamCloneURL: getRepoURL(upstreamKrewIndexRepoOwner, upstreamKrewIndexRepoName),
-			LocalCloneURL:    getRepoURL("krew-release-bot", "krew-index"),
+			UpstreamCloneURL: GetRepoURL(upstreamKrewIndexRepoOwner, upstreamKrewIndexRepoName),
+			LocalCloneURL:    GetRepoURL("krew-release-bot", "krew-index"),
 		},
 	}, nil
 }
