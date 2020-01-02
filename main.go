@@ -21,12 +21,7 @@ func main() {
 	}
 
 	ghToken := os.Getenv("GH_TOKEN")
-	releaser := &releaser.Releaser{
-		Token:           ghToken,
-		TokenEmail:      "krewpluginreleasebot@gmail.com",
-		TokenUserHandle: "krew-release-bot",
-		TokenUsername:   "Krew Release Bot",
-	}
+	releaser := releaser.New(ghToken)
 
 	s := &http.Server{
 		Addr:           fmt.Sprintf(":%d", 8080),

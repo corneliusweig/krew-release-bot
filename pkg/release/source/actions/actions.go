@@ -8,8 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/go-resty/resty"
 	"github.com/google/go-github/github"
 	"github.com/rajatjindal/krew-release-bot/pkg/release"
+	"github.com/sirupsen/logrus"
 )
 
 //RunAction runs the github action
@@ -45,7 +47,7 @@ func RunAction() error {
 		PluginOwner:        owner,
 		PluginRepo:         repo,
 		PluginReleaseActor: actor,
-		TemplateFile:       filepath.Join(os.Getenv("GITHUB_WORKSPACE"), repo, ".krew.yaml"),
+		TemplateFile:       filepath.Join(os.Getenv("GITHUB_WORKSPACE"), ".krew.yaml"),
 	}
 
 	err = releaseRequest.ProcessTemplate()
@@ -53,7 +55,11 @@ func RunAction() error {
 		return err
 	}
 
-	//NOW SUBMIT FOR PR
+	err = submitForPR(releaseRequest)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -99,4 +105,23 @@ type authInjector struct {
 func (ij *authInjector) RoundTrip(req *http.Request) (*http.Response, error) {
 	req.Header.Set("authorization", fmt.Sprintf("Bearer %s", ij.token))
 	return http.DefaultTransport.RoundTrip(req)
+}
+
+func submitForPR(request *release.Request) error {
+	client := resty.New()
+	resp, err := client.R().
+		SetBody(request).
+		SetHeader("x-github-token", os.Getenv("GITHUB_TOKEN")).
+		Post("https://krew-release-bot-test.rajatjindal.com/github-action-webhook")
+
+	if err != nil {
+		return err
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return fmt.Errorf("expected status code %d got %d. body: %s", http.StatusOK, resp.StatusCode(), resp.Body())
+	}
+
+	logrus.Info(string(resp.Body()))
+	return nil
 }

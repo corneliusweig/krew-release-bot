@@ -30,6 +30,22 @@ type Releaser struct {
 	LocalKrewIndexRepoCloneURL    string
 }
 
+//New returns new releaser object
+func New(ghToken string) *Releaser {
+	return &Releaser{
+		Token:                         ghToken,
+		TokenEmail:                    "krewpluginreleasebot@gmail.com",
+		TokenUserHandle:               "krew-release-bot",
+		TokenUsername:                 "Krew Release Bot",
+		UpstreamKrewIndexRepo:         "krew-index",
+		UpstreamKrewIndexRepoOwner:    "rajatjin",
+		UpstreamKrewIndexRepoCloneURL: "https://github.com/rajatjin/krew-index.git",
+		LocalKrewIndexRepo:            "krew-index",
+		LocalKrewIndexRepoOwner:       "krew-release-bot",
+		LocalKrewIndexRepoCloneURL:    "https://github.com/krew-release-bot/krew-index.git",
+	}
+}
+
 //HandleGithubWebhook handles github webhook requests
 func (releaser *Releaser) HandleGithubWebhook(w http.ResponseWriter, r *http.Request) {
 	hook, err := webhook.NewGithubWebhook(os.Getenv("WEBHOOK_TOKEN"))
