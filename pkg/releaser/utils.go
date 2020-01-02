@@ -1,4 +1,4 @@
-package helpers
+package releaser
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/google/go-github/github"
-	"github.com/rajatjindal/krew-release-bot/pkg/actions"
+	"github.com/rajatjindal/krew-release-bot/pkg/release"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/oauth2"
 	"gopkg.in/src-d/go-git.v4"
@@ -28,32 +28,32 @@ const (
 )
 
 //CloneRepos clones the repo
-func CloneRepos(actionData actions.ActionData, dir string) (*ugit.Repository, error) {
-	logrus.Infof("Cloning %s", actionData.Derived.UpstreamCloneURL)
+func (r *Releaser) cloneRepos(dir string, request *release.Request) (*ugit.Repository, error) {
+	logrus.Infof("Cloning %s", r.UpstreamKrewIndexRepoCloneURL)
 	repo, err := ugit.PlainClone(dir, false, &ugit.CloneOptions{
-		URL:           actionData.Derived.UpstreamCloneURL,
+		URL:           r.UpstreamKrewIndexRepoCloneURL,
 		Progress:      os.Stdout,
 		ReferenceName: plumbing.Master,
 		SingleBranch:  true,
-		Auth:          getAuth(actionData),
+		Auth:          r.getAuth(),
 		RemoteName:    OriginNameUpstream,
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	logrus.Infof("Adding remote %s at %s", OriginNameLocal, actionData.Derived.LocalCloneURL)
+	logrus.Infof("Adding remote %s at %s", OriginNameLocal, r.LocalKrewIndexRepoCloneURL)
 	_, err = repo.CreateRemote(&config.RemoteConfig{
 		Name: OriginNameLocal,
-		URLs: []string{actionData.Derived.LocalCloneURL},
+		URLs: []string{r.LocalKrewIndexRepoCloneURL},
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	branchName := getBranchName(actionData)
+	branchName := r.getBranchName(request)
 	logrus.Infof("creating branch %s", *branchName)
-	err = CreateBranch(repo, *branchName)
+	err = r.createBranch(repo, *branchName)
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +62,7 @@ func CloneRepos(actionData actions.ActionData, dir string) (*ugit.Repository, er
 }
 
 //CreateBranch creates branch
-func CreateBranch(repo *ugit.Repository, branchName string) error {
+func (r *Releaser) createBranch(repo *ugit.Repository, branchName string) error {
 	w, err := repo.Worktree()
 	if err != nil {
 		return err
@@ -87,14 +87,14 @@ func CreateBranch(repo *ugit.Repository, branchName string) error {
 	})
 }
 
-//Commit is a git commit
-type Commit struct {
+//commitConfig is a git commit
+type commitConfig struct {
 	Msg        string
 	RemoteName string
 }
 
 //AddCommitAndPush commits and push
-func AddCommitAndPush(repo *ugit.Repository, commit Commit, actionData actions.ActionData) error {
+func (r *Releaser) addCommitAndPush(repo *ugit.Repository, commit commitConfig, request *release.Request) error {
 	w, err := repo.Worktree()
 	if err != nil {
 		return err
@@ -103,8 +103,8 @@ func AddCommitAndPush(repo *ugit.Repository, commit Commit, actionData actions.A
 	w.Add(".")
 	_, err = w.Commit(commit.Msg, &git.CommitOptions{
 		Author: &object.Signature{
-			Name:  actionData.Inputs.TokenUserName,
-			Email: actionData.Inputs.TokenUserEmail,
+			Name:  r.TokenUsername,
+			Email: r.TokenEmail,
 			When:  time.Now(),
 		},
 	})
@@ -112,34 +112,34 @@ func AddCommitAndPush(repo *ugit.Repository, commit Commit, actionData actions.A
 	return repo.Push(&ugit.PushOptions{
 		RemoteName: commit.RemoteName,
 		RefSpecs:   []config.RefSpec{config.DefaultPushRefSpec},
-		Auth:       getAuth(actionData),
+		Auth:       r.getAuth(),
 	})
 }
 
 //SubmitPR submits the PR
-func SubmitPR(actionData actions.ActionData) (string, error) {
-	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: actionData.Inputs.Token})
+func (r *Releaser) submitPR(request *release.Request) (string, error) {
+	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: r.Token})
 	tc := oauth2.NewClient(context.TODO(), ts)
 	client := github.NewClient(tc)
 
 	prr := &github.NewPullRequest{
-		Title: getTitle(actionData),
-		Head:  getHead(actionData),
+		Title: r.getTitle(request),
+		Head:  r.getHead(request),
 		Base:  github.String("master"),
-		Body:  getPRBody(actionData),
+		Body:  r.getPRBody(request),
 	}
 
 	logrus.Infof("creating pr with title %q, \nhead %q, \nbase %q, \nbody %q",
-		github.Stringify(getTitle(actionData)),
-		github.Stringify(getHead(actionData)),
+		github.Stringify(r.getTitle(request)),
+		github.Stringify(r.getHead(request)),
 		"master",
-		github.Stringify(getPRBody(actionData)),
+		github.Stringify(r.getPRBody(request)),
 	)
 
 	pr, _, err := client.PullRequests.Create(
 		context.TODO(),
-		actionData.Inputs.UpstreamKrewIndexOwner,
-		actionData.Inputs.UpstreamKrewIndexRepoName,
+		r.UpstreamKrewIndexRepoOwner,
+		r.UpstreamKrewIndexRepo,
 		prr,
 	)
 	if err != nil {
@@ -150,49 +150,51 @@ func SubmitPR(actionData actions.ActionData) (string, error) {
 	return pr.GetHTMLURL(), nil
 }
 
-func getTitle(actionData actions.ActionData) *string {
+func (r *Releaser) getTitle(request *release.Request) *string {
 	s := fmt.Sprintf(
 		"release new version %s of %s",
-		actionData.ReleaseInfo.GetTagName(),
-		actionData.Inputs.PluginName,
+		request.TagName,
+		request.PluginName,
 	)
 
 	return github.String(s)
 }
 
-func getBranchName(actionData actions.ActionData) *string {
-	s := fmt.Sprintf("%s-%s-%s", actionData.Actor, actionData.Repo, actionData.ReleaseInfo.GetTagName())
+func (r *Releaser) getBranchName(request *release.Request) *string {
+	s := fmt.Sprintf("%s-%s-%s", request.PluginOwner, request.PluginRepo, request.TagName)
 	fmt.Printf("creating branch %s", s)
 	return github.String(s)
 }
 
-func getHead(actionData actions.ActionData) *string {
-	branchName := getBranchName(actionData)
-	s := fmt.Sprintf("%s:%s", actionData.Inputs.TokenUserHandle, *branchName)
+func (r *Releaser) getHead(request *release.Request) *string {
+	branchName := r.getBranchName(request)
+	s := fmt.Sprintf("%s:%s", r.TokenUserHandle, *branchName)
 	return github.String(s)
 }
 
-func getPRBody(actionData actions.ActionData) *string {
+func (r *Releaser) getPRBody(request *release.Request) *string {
 	prBody := `hey krew-index team,
 
-I am [krew-release-bot](https://github.com/rajatjindal/krew-release-bot), and I would like to open this PR to publish version %s of %s on behalf of [%s](https://github.com/%s).
+I am [krew-release-bot](https://github.com/rajatjindal/krew-release-bot), 
+and I would like to open this PR to publish version %s of %s on behalf of 
+[%s](https://github.com/%s).
 
 Thanks,
 [krew-release-bot](https://github.com/rajatjindal/krew-release-bot)`
 
 	s := fmt.Sprintf(prBody,
-		fmt.Sprintf("`%s`", actionData.ReleaseInfo.GetTagName()),
-		fmt.Sprintf("`%s`", actionData.Inputs.PluginName),
-		actionData.Actor,
-		actionData.Actor,
+		fmt.Sprintf("`%s`", request.TagName),
+		fmt.Sprintf("`%s`", request.PluginName),
+		request.PluginReleaseActor,
+		request.PluginReleaseActor,
 	)
 
 	return github.String(s)
 }
 
-func getAuth(actionData actions.ActionData) transport.AuthMethod {
+func (r *Releaser) getAuth() transport.AuthMethod {
 	return &githttp.BasicAuth{
-		Username: actionData.Inputs.TokenUserHandle,
-		Password: actionData.Inputs.Token,
+		Username: r.TokenUserHandle,
+		Password: r.Token,
 	}
 }

@@ -2,6 +2,7 @@ package krew
 
 import (
 	"fmt"
+	"io"
 	"strings"
 
 	"sigs.k8s.io/krew/pkg/index/indexscanner"
@@ -9,12 +10,12 @@ import (
 )
 
 //ValidateOwnership validates the ownership of the plugin
-func ValidateOwnership(file, expectedOwner string) error {
+func ValidateOwnership(existingIndexFile, expectedOwner string) error {
 	if expectedOwner == "" {
 		return fmt.Errorf("expectedOwner cannot be empty string")
 	}
 
-	plugin, err := indexscanner.ReadPluginFile(file)
+	plugin, err := indexscanner.ReadPluginFile(existingIndexFile)
 	if err != nil {
 		return err
 	}
@@ -37,11 +38,16 @@ func ValidatePlugin(name, file string) error {
 }
 
 //GetPluginName gets the plugin name from template .krew.yaml file
-func GetPluginName(file string) (string, error) {
-	plugin, err := indexscanner.ReadPluginFile(file)
+func GetPluginName(reader io.Reader) (string, error) {
+	plugin, err := indexscanner.DecodePluginFile(reader)
 	if err != nil {
 		return "", err
 	}
 
 	return plugin.GetName(), nil
+}
+
+//PluginFileName returns the plugin file with extension
+func PluginFileName(name string) string {
+	return fmt.Sprintf("%s%s", name, ".yaml")
 }

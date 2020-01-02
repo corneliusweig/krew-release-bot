@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"text/template"
 
+	"github.com/rajatjindal/krew-release-bot/pkg/krew"
 	"github.com/sirupsen/logrus"
 )
 
@@ -62,5 +63,10 @@ func (r *Request) ProcessTemplate() error {
 	}
 
 	r.ProcessedTemplate = buf.Bytes()
+	r.PluginName, err = krew.GetPluginName(buf)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
